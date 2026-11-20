@@ -61,7 +61,16 @@
 
   /* ---------- Datei ---------- */
   const slug = (s) => (s || 'schaltplan').toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-').replace(/^-|-$/g, '') || 'schaltplan';
-  function download(blob, name) {
+  /* Datei anbieten: in eingebetteten Viewern über die "downloads"-Fähigkeit, sonst normaler Browser-Download */
+  async function download(blob, name) {
+    try {
+      if (window.claude && typeof window.claude.use === 'function') {
+        const d = await window.claude.use('downloads');
+        if (d) { await d.save({ filename: name, data: blob }); return; }
+      }
+    } catch (e) {
+      if (e && (e.code === 'declined' || e.code === 'rate_limited')) return;
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();

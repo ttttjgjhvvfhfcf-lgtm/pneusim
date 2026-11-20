@@ -9,6 +9,7 @@ npm start            # oder: python3 -m http.server 8080
 ```
 
 `index.html` lässt sich auch direkt per Doppelklick öffnen (`file://`).
+Für eine einzelne HTML-Datei (CSS und JS inline): `node scripts/bundle.js` → `dist/pneusim.html`.
 
 ## Funktionen
 
@@ -60,6 +61,7 @@ js/editor.js        SVG-Editor und Simulationsdarstellung
 js/ui.js            Palette, Inspektor, Weg-Zeit-Diagramm
 js/app.js           Verdrahtung, Datei-Funktionen, Export
 js/examples.js      Beispielschaltungen
+scripts/bundle.js   Bündelt alles zu einer einzelnen HTML-Datei
 tests/              automatisierte Tests
 ```
 
