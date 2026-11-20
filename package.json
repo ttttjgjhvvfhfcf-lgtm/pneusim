@@ -1,0 +1,15 @@
+{
+  "name": "pneusim",
+  "version": "1.0.0",
+  "description": "PneuSim – Pneumatik-Schaltplaneditor mit Simulation (FluidSim-Stil), reine Browser-App ohne Build-Schritt",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node tests/examples.test.js",
+    "test:ui": "node tests/ui.test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.45.0"
+  }
+}
