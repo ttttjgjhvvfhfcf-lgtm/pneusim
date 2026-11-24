@@ -142,12 +142,17 @@
         conn: (pid) => self.connSet.has(c.id + ':' + pid),
         sensors: (id) => (PS.opts.showSensors ? PS.Doc.sensorsOf(doc, id) : []),
         cylLabel: (id) => { const cc = self.byId(id); return cc ? cc.label || cc.type : null; },
-        sim: null, rt: null,
+        refLabel: (id) => { const cc = self.byId(id); return cc ? cc.label || cc.type : null; },
+        sim: null, rt: null, ecol: () => null,
       };
       if (sim && this.mode === 'sim') {
         ctx.sim = sim; ctx.rt = sim.rt[c.id];
         ctx.pp = (pid) => sim.pg(c.id, pid);
         ctx.flow = (pid) => (self.flows && self.flows[c.id + ':' + pid]) || 0;
+        ctx.ecol = (pid) => {
+          const net = sim.eport[c.id + ':' + pid];
+          return net == null || !sim.elec ? null : PS.ecol(sim.elec.pot(net), sim.elec.cur[net]);
+        };
       } else { ctx.pp = () => 0; ctx.flow = () => 0; }
       return ctx;
     }
@@ -190,7 +195,7 @@
       g._symStr = null;
       // Ports
       const ports = T.ports(c);
-      g._ports.innerHTML = ports.map((p) => `<circle class="port${p.kind === 'exh' ? ' exh' : ''}" cx="${p.x}" cy="${p.y}" r="5" data-cid="${c.id}" data-pid="${p.id}"><title>Anschluss ${PS.esc(p.label || p.id)}</title></circle>`).join('');
+      g._ports.innerHTML = ports.map((p) => `<circle class="port${p.kind === 'exh' || p.kind === 'bus' ? ' exh' : ''}" cx="${p.x}" cy="${p.y}" r="5" data-cid="${c.id}" data-pid="${p.id}"><title>Anschluss ${PS.esc(p.label || p.id)}</title></circle>`).join('');
     }
 
     refreshPortStates() {
@@ -198,6 +203,13 @@
       this.compEls.forEach((g, id) => {
         g._ports.querySelectorAll('.port').forEach((p) => p.classList.toggle('conn', this.connSet.has(id + ':' + p.dataset.pid)));
       });
+    }
+
+    /* Domäne eines Anschlusses: 'e' = elektrisch, sonst 'p' = pneumatisch */
+    portDom(ref) {
+      const c = this.byId(ref.c), T = c && PS.types[c.type];
+      const pd = T && T.ports(c).find((p) => p.id === ref.p);
+      return pd && pd.dom === 'e' ? 'e' : 'p';
     }
 
     renderWire(w) {
@@ -210,6 +222,8 @@
       }
       const d = w._pts ? ptStr(w._pts) : '';
       g._line.setAttribute('d', d); g._hit.setAttribute('d', d); g._flow.setAttribute('d', d);
+      w._dom = this.portDom(w.a);
+      g.classList.toggle('elec', w._dom === 'e');
       g.classList.toggle('sel', this.sel.has(w.id));
       if (this.sel.has(w.id) && !(this.drag && this.drag.type === 'seg') && this.sel.size === 1) this.refreshHandles();
     }
@@ -319,15 +333,19 @@
       this.refreshPortStates();
       // Anschlüsse können sich verschoben haben (Ventil) → Leitungen neu führen, Geber-Marken aktualisieren
       this.rerouteWires([c.id]);
-      if (c.type === 'valve' || c.type === 'timer') this.doc.comps.filter((o) => o.type === 'cylD' || o.type === 'cylS').forEach((o) => this.renderComp(o));
+      this.refreshRefs(c);
       if (!noCommit) { clearTimeout(this._pt); this._pt = setTimeout(() => this.commit(), 350); }
+    }
+
+    /* Bauteile neu zeichnen, die Namen/Positionen anderer Bauteile anzeigen (Geber, Spulen, Relais) */
+    refreshRefs(except) {
+      this.doc.comps.forEach((o) => { if (o !== except && ['cylD', 'cylS', 'valve', 'timer', 'kcont'].includes(o.type)) this.renderComp(o); });
     }
 
     labelChanged(c) {
       const g = this.compEls.get(c.id);
       if (g) g._lbl.textContent = c.label || '';
-      this.doc.comps.filter((o) => o.type === 'cylD' || o.type === 'cylS').forEach((o) => this.renderComp(o));
-      this.doc.comps.filter((o) => o.type === 'valve').forEach((o) => this.renderComp(o));
+      this.refreshRefs(c);
       clearTimeout(this._pt); this._pt = setTimeout(() => this.commit(), 350);
     }
 
@@ -351,7 +369,7 @@
       // Geberzuordnungen innerhalb der Kopie umlenken
       newIds.forEach((id) => {
         const c = this.byId(id);
-        ['bindL', 'bindR'].forEach((k) => { if (c.p[k] && map[c.p[k].cyl]) c.p[k] = Object.assign({}, c.p[k], { cyl: map[c.p[k].cyl] }); });
+        PS.Doc.eachBind(c, (k, bd) => PS.Doc.REFS.forEach((r) => { if (bd[r] && map[bd[r]]) c.p[k] = Object.assign({}, c.p[k], { [r]: map[bd[r]] }); }));
       });
       this.clip.comps.forEach((c) => { c.x += dx; c.y += dy; });
       this.setDocKeep();
@@ -373,7 +391,8 @@
     /* Leitungen */
     addWire(a, b, via) {
       if (a.c === b.c && a.p === b.p) return null;
-      if (a.c === b.c && this.byId(a.c).type !== 'junction') return null;
+      if (a.c === b.c && !PS.types[this.byId(a.c).type].junction) return null;
+      if (this.portDom(a) !== this.portDom(b)) return null; // Pneumatik und Elektrik nicht mischen
       if (this.doc.wires.some((w) => (w.a.c === a.c && w.a.p === a.p && w.b.c === b.c && w.b.p === b.p) || (w.a.c === b.c && w.a.p === b.p && w.b.c === a.c && w.b.p === a.p))) return null;
       const w = PS.Doc.addWire(this.doc, a, b, via && via.length ? via : null);
       w._pts = PS.routeWire(this.doc, w);
@@ -395,7 +414,7 @@
       jx = PS.snap(jx); jy = PS.snap(jy);
       if (pts.some((p, i) => (i === 0 || i === pts.length - 1) && p[0] === jx && p[1] === jy)) return null;
       const before = pts.slice(1, n.seg + 1).concat(), after = pts.slice(n.seg + 1, -1);
-      const j = PS.Doc.addComp(this.doc, 'junction', jx, jy);
+      const j = PS.Doc.addComp(this.doc, w._dom === 'e' ? 'ejunction' : 'junction', jx, jy);
       const w1 = PS.Doc.addWire(this.doc, w.a, { c: j.id, p: '1' }, before);
       const w2 = PS.Doc.addWire(this.doc, { c: j.id, p: '1' }, w.b, after);
       this.doc.wires = this.doc.wires.filter((o) => o !== w);
@@ -500,13 +519,14 @@
       if (this.wiring) { this.wiring.down = [e.clientX, e.clientY]; this.wiring.moved = false; this.svg.setPointerCapture(e.pointerId); return; }
       if (portEl) {
         const pc = this.byId(portEl.dataset.cid);
-        if (pc && pc.type === 'junction' && !e.shiftKey) {
+        const isJ = !!(pc && PS.types[pc.type].junction);
+        if (isJ && !e.shiftKey) {
           // Verzweigung: Ziehen startet eine Leitung, Klick wählt sie aus, Umschalt+Ziehen verschiebt sie
           this.jPress = { cid: pc.id, pid: portEl.dataset.pid, x: e.clientX, y: e.clientY, e };
           this.svg.setPointerCapture(e.pointerId);
           return;
         }
-        if (!(pc && pc.type === 'junction')) { this.startWire(portEl.dataset.cid, portEl.dataset.pid, e); return; }
+        if (!isJ) { this.startWire(portEl.dataset.cid, portEl.dataset.pid, e); return; }
       }
       const compEl = t.closest && t.closest('.comp');
       const wireEl = t.closest && t.closest('.wire');
@@ -640,7 +660,7 @@
     startWire(cid, pid, e) {
       const c = this.byId(cid);
       const port = PS.worldPorts(c).find((p) => p.id === pid);
-      this.wiring = { a: { c: cid, p: pid }, start: port, via: [], cur: [port.x, port.y], down: [e.clientX, e.clientY], moved: false, click: false, hover: null, obs: PS.obstacles(this.doc) };
+      this.wiring = { a: { c: cid, p: pid }, dom: port.dom === 'e' ? 'e' : 'p', start: port, via: [], cur: [port.x, port.y], down: [e.clientX, e.clientY], moved: false, click: false, hover: null, obs: PS.obstacles(this.doc) };
       this.svg.classList.add('wiring');
       this.svg.setPointerCapture(e.pointerId);
       this.updateWirePreview(e, [port.x, port.y]);
@@ -655,7 +675,7 @@
       const w = this.wiring;
       if (!w) return;
       if (Math.hypot(e.clientX - w.down[0], e.clientY - w.down[1]) > 4) w.moved = true;
-      const hov = this.nearestPort(pos[0], pos[1], 14, (c, p) => c.id === w.a.c && (p.id === w.a.p || c.type !== 'junction'));
+      const hov = this.nearestPort(pos[0], pos[1], 14, (c, p) => c.id === w.a.c || (p.dom === 'e' ? 'e' : 'p') !== w.dom);
       w.hover = hov;
       w.cur = hov ? [hov.x, hov.y] : [PS.snap(pos[0]), PS.snap(pos[1])];
       const target = hov ? { x: hov.x, y: hov.y, dir: hov.dir } : { x: w.cur[0], y: w.cur[1], dir: 'any' };
@@ -682,7 +702,7 @@
       }
       if (overWire && (w.moved || w.click)) {
         const tw = this.wireById(overWire.dataset.wid);
-        if (tw && tw._pts) {
+        if (tw && tw._pts && tw._dom === w.dom) {
           const j = this.splitWire(tw, pos[0], pos[1]);
           if (j) {
             const ok = this.addWire(w.a, { c: j.id, p: '1' }, w.via);
@@ -716,7 +736,7 @@
       this.svg.classList.remove('simmode');
       cancelAnimationFrame(this.raf);
       this.sim = null; this.running = false;
-      this.wireEls.forEach((g) => { g._line.removeAttribute('style'); g._flow.removeAttribute('style'); g._line.classList.remove('live'); g.classList.remove('flowing'); });
+      this.wireEls.forEach((g) => { g._line.removeAttribute('style'); g._flow.removeAttribute('style'); g._line.classList.remove('live'); g.classList.remove('flowing', 'short'); g._q = undefined; g._eq = undefined; g._on = undefined; });
       this.doc.comps.forEach((c) => this.renderComp(c));
       this.refreshPortStates();
     }
@@ -760,6 +780,17 @@
       this.doc.wires.forEach((w) => {
         const g = this.wireEls.get(w.id);
         if (!g) return;
+        const en = sim.ewireNet[w.id];
+        if (en != null && sim.elec) { // elektrische Leitung: Potenzial und Stromfluss
+          const pot = sim.elec.pot(en), cur = sim.elec.cur[en] ? 1 : 0, key = pot + ':' + cur;
+          if (g._eq !== key) {
+            g._eq = key;
+            g._line.style.stroke = PS.ecol(pot, cur) || '';
+            g._line.style.strokeWidth = cur ? '3.2' : '';
+            g.classList.toggle('short', pot === 'S');
+          }
+          return;
+        }
         const n = sim.wireNode[w.id];
         const pg = n == null ? 0 : P[n] - PS.P0;
         const q = Math.round(pg * 10);
@@ -793,14 +824,12 @@
       if (!c || !this.sim) return;
       const rt = this.sim.rt[c.id];
       if (!rt || !rt.man) return;
+      const ops = PS.operables(c);
+      if (!ops.length) return;
       const actEl = t.closest('[data-act]');
-      let side = actEl ? actEl.dataset.act : null;
-      const isMan = (s) => PS.ACT[s === 'L' ? c.p.left : c.p.right] && PS.ACT[s === 'L' ? c.p.left : c.p.right].manual;
-      if (!side || !isMan(side)) side = isMan('L') ? 'L' : isMan('R') ? 'R' : null;
-      if (!side) return;
-      const def = PS.ACT[side === 'L' ? c.p.left : c.p.right];
-      if (def.latch || e.shiftKey) rt.man[side] = !rt.man[side];
-      else { rt.man[side] = true; this.simHeld = { cid: c.id, side }; this.svg.setPointerCapture(e.pointerId); }
+      const op = (actEl && ops.find((o) => o.side === actEl.dataset.act)) || ops[0];
+      if (op.latch || e.shiftKey) rt.man[op.side] = !rt.man[op.side];
+      else { rt.man[op.side] = true; this.simHeld = { cid: c.id, side: op.side }; this.svg.setPointerCapture(e.pointerId); }
       this.renderSim();
       if (this.cb.onSimInput) this.cb.onSimInput();
     }

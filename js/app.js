@@ -53,6 +53,14 @@
     requestAnimationFrame(() => { ed.fitIfClipped(); scope.draw(); });
   }
 
+  function updateWarnBadge(sim) {
+    const ws = sim.allWarnings(), b = $('simWarn'), key = ws.map((w) => w.msg).join('\n');
+    if (b._k === key) return;
+    b._k = key;
+    b.hidden = !ws.length; b.textContent = ws.length ? `⚠ ${ws.length} Hinweis${ws.length > 1 ? 'e' : ''}` : '';
+    b.title = key;
+  }
+
   function updateRunUI() {
     const b = $('simPlay');
     b.innerHTML = `${UI.icon(ed.running ? 'pause' : 'play')}<span>${ed.running ? 'Pause' : 'Start'}</span>`;
@@ -144,16 +152,14 @@
       onSimCompiled: (sim) => {
         scope.setup(sim, ed.doc);
         if (insp.tab === 'sim') insp.render();
-        const n = sim.warnings.length, b = $('simWarn');
-        b.hidden = !n; b.textContent = n ? `⚠ ${n} Hinweis${n > 1 ? 'e' : ''}` : '';
-        b.title = sim.warnings.map((w) => w.msg).join('\n');
+        updateWarnBadge(sim);
       },
       onFrame: (sim, dt) => {
         const now = performance.now();
         if (!sim) return;
         if (ed.running) scope.sample(sim);
         if (now - lastScope > 66) { lastScope = now; if (document.body.classList.contains('scope')) scope.draw(); }
-        if (now - lastUI > 90) { lastUI = now; insp.update(sim); $('simClock').textContent = `t = ${PS.fmt(sim.t, 2)} s`; }
+        if (now - lastUI > 90) { lastUI = now; insp.update(sim); updateWarnBadge(sim); $('simClock').textContent = `t = ${PS.fmt(sim.t, 2)} s`; }
       },
       onSimInput: () => insp.update(ed.sim),
       onRunState: updateRunUI,

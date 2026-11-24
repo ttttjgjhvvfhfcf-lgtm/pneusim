@@ -41,13 +41,18 @@
 
   Doc.byId = (doc, id) => doc.comps.find((c) => c.id === id);
 
+  /* Zuordnungen: Parameter mit Objektwert {cyl|coil|relay: <id>, …} */
+  Doc.REFS = ['cyl', 'coil', 'relay'];
+  Doc.eachBind = (c, fn) => {
+    if (!c.p) return;
+    Object.keys(c.p).forEach((k) => { const v = c.p[k]; if (v && typeof v === 'object' && !Array.isArray(v)) fn(k, v); });
+  };
+
   Doc.removeComp = function (doc, id) {
     doc.comps = doc.comps.filter((c) => c.id !== id);
     doc.wires = doc.wires.filter((w) => w.a.c !== id && w.b.c !== id);
-    // Geberzuordnungen aufräumen
-    doc.comps.forEach((c) => {
-      if (c.p) ['bindL', 'bindR'].forEach((k) => { if (c.p[k] && c.p[k].cyl === id) c.p[k] = null; });
-    });
+    // Zuordnungen (Zylinder, Spule, Relais) aufräumen
+    doc.comps.forEach((c) => Doc.eachBind(c, (k, bd) => { if (Doc.REFS.some((r) => bd[r] === id)) c.p[k] = null; }));
   };
 
   /* Verbindungsvorschau: gibt es an einem Port bereits eine Leitung? */
@@ -61,6 +66,7 @@
   Doc.sensorsOf = function (doc, cylId) {
     const out = [];
     doc.comps.forEach((c) => {
+      if (c.type === 'esens' && c.p.bind && c.p.bind.cyl === cylId) out.push({ pos: c.p.bind.pos, label: c.label || '·' });
       if (c.type !== 'valve' && c.type !== 'timer') return;
       [['left', 'bindL'], ['right', 'bindR']].forEach(([k, bk]) => {
         const kind = c.p[k], bd = c.p[bk];

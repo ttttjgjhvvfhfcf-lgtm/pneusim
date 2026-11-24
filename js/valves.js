@@ -13,7 +13,7 @@
     pedal: { name: 'Fußpedal', manual: true, hold: true },
     roller: { name: 'Rolle (Endlagengeber)', sensor: true },
     rollerIdle: { name: 'Rollenhebel Leerrücklauf', sensor: true, oneway: true },
-    solenoid: { name: 'Elektromagnet (schaltbar)', manual: true, latch: true },
+    solenoid: { name: 'Elektromagnet (Spule Y)', manual: true, latch: true, coil: true },
     pilot: { name: 'Pneumatisch (Steuerdruck)', pilot: true },
   };
 
@@ -186,11 +186,12 @@
       }
       s += `<g transform="translate(${edge},0)${mir}">${g}</g>`;
       const bd = sd === 'L' ? p.bindL : p.bindR;
-      if (PS.ACT[kind] && PS.ACT[kind].sensor && bd && ctx.cylLabel) {
-        const lab = ctx.cylLabel(bd.cyl);
-        const txt = lab ? `${lab} ${POSTXT(bd.pos)}` : '⚠ ohne Zylinder';
-        const tx = sd === 'L' ? edge - spec.lw + 30 : edge + spec.rw - 30;
-        s += PS.txt(ctx, sd === 'L' ? edge - 4 : edge + 4, 54, txt, sd === 'L' ? 'end' : 'start', 'lbl sens');
+      const adef = PS.ACT[kind], rl = ctx.refLabel || ctx.cylLabel;
+      if (adef && bd && rl) {
+        let txt = null;
+        if (adef.sensor) { const lab = rl(bd.cyl); txt = lab ? `${lab} ${POSTXT(bd.pos)}` : '⚠ ohne Zylinder'; }
+        else if (adef.coil && bd.coil) { txt = rl(bd.coil) || '⚠ ohne Spule'; }
+        if (txt) s += PS.txt(ctx, sd === 'L' ? edge - 4 : edge + 4, 54, txt, sd === 'L' ? 'end' : 'start', 'lbl sens');
       }
     };
     side('L'); side('R');
@@ -233,8 +234,10 @@
         const kind = sd === 'L' ? o.left : o.right;
         const def = PS.ACT[kind] || {};
         let on = false;
-        if (def.manual) on = rt.man[sd];
-        else if (def.sensor) {
+        if (def.manual) {
+          on = rt.man[sd]; // Handbetätigung bzw. Handhilfsbetätigung
+          if (def.coil) { const bd = o.bind[sd], cl = bd && sim.rt[bd.coil]; if (cl && cl.on) on = true; }
+        } else if (def.sensor) {
           const bd = o.bind[sd];
           const cyl = bd && sim.rt[bd.cyl];
           let hit = false;
@@ -273,6 +276,7 @@
 
   const actOpts = Object.keys(PS.ACT).map((k) => [k, PS.ACT[k].name]);
   const isSensor = (k) => !!(PS.ACT[k] && PS.ACT[k].sensor);
+  const isCoil = (k) => !!(PS.ACT[k] && PS.ACT[k].coil);
 
   PS.defType({
     id: 'valve', name: 'Wegeventil', prefix: 'V', dyn: true,
@@ -282,9 +286,9 @@
       { k: 'nc', label: 'Ruhestellung gesperrt (NC)', type: 'bool', when: (p) => p.kind === '2/2' || p.kind === '3/2' },
       { k: 'center', label: 'Mittelstellung', type: 'sel', when: (p) => p.kind === '5/3', opts: [['closed', 'gesperrt'], ['exhaust', 'entlüftet'], ['pressure', 'belüftet']] },
       { k: 'left', label: 'Betätigung links', type: 'sel', opts: actOpts },
-      { k: 'bindL', label: 'Geber links', type: 'bind', when: (p) => isSensor(p.left) },
+      { k: 'bindL', label: 'Zuordnung links', type: 'bind', when: (p) => isSensor(p.left) || isCoil(p.left) },
       { k: 'right', label: 'Betätigung rechts', type: 'sel', opts: actOpts },
-      { k: 'bindR', label: 'Geber rechts', type: 'bind', when: (p) => isSensor(p.right) },
+      { k: 'bindR', label: 'Zuordnung rechts', type: 'bind', when: (p) => isSensor(p.right) || isCoil(p.right) },
       { k: 'init', label: 'Startstellung (ohne Feder)', type: 'sel', when: (p) => p.kind !== '5/3' && p.left !== 'spring' && p.right !== 'spring', opts: [['auto', 'rechtes Feld'], ['L', 'linkes Feld']] },
       { k: 'pilotP', label: 'Ansprechdruck Steuerung', type: 'num', min: 0.3, max: 8, step: 0.1, unit: 'bar', when: (p) => p.left === 'pilot' || p.right === 'pilot' },
       { k: 'qn', label: 'Nenndurchfluss', type: 'num', min: 20, max: 1200, step: 10, unit: 'l/min' },
@@ -292,6 +296,15 @@
     ports: (c) => PS.valveSpec(c.p).ports,
     bbox: (c) => PS.valveSpec(c.p).bbox,
     draw: (c, ctx) => PS.drawValve(c, ctx),
+    /* bedienbare Betätigungen (Simulation) */
+    operables(c) {
+      const out = [];
+      ['L', 'R'].forEach((sd) => {
+        const kind = sd === 'L' ? c.p.left : c.p.right, def = PS.ACT[kind];
+        if (def && def.manual) out.push({ side: sd, latch: !!def.latch, name: def.coil ? 'Handhilfsbetätigung Magnet' : def.name });
+      });
+      return out;
+    },
     build(c, B) {
       const spec = PS.valveSpec(c.p);
       const nodes = {};
@@ -312,6 +325,9 @@
       );
     },
   });
+
+  /* Bedienbare Elemente eines Bauteils (Taster, Hebel, Schalter …) */
+  PS.operables = (c) => { const T = PS.types[c.type]; return T && T.operables ? T.operables(c) : []; };
 
   /* Vorlagen für die Palette */
   PS.valvePresets = [

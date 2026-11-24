@@ -19,6 +19,10 @@
       note(text, x, y, size) { return PS.Doc.addComp(doc, 'note', x, y, { text, size: size || 13 }); },
       bind(valve, side, cyl, pos, dir) { valve.p['bind' + side] = Object.assign({ cyl: cyl.id, pos }, dir ? { dir } : {}); },
       J(x, y) { return PS.Doc.addComp(doc, 'junction', x, y); },
+      EJ(x, y) { return PS.Doc.addComp(doc, 'ejunction', x, y); },
+      bindCoil(valve, side, coil) { valve.p['bind' + side] = { coil: coil.id }; },
+      bindRelay(kc, relay) { kc.p.bind = { relay: relay.id }; },
+      bindSens(sens, cyl, pos) { sens.p.bind = { cyl: cyl.id, pos }; },
     };
     return E;
   }
@@ -224,6 +228,141 @@
     E.w(j2a, '1', a0, '1'); E.w(jm2, '1', b0, '1'); E.w(j2c, '1', VB, 'pR');
     E.note('Kaskadensteuerung A+ B+ B− A−', 40, 26, 16);
     E.note('Start: S0 drücken', 40, 46, 12);
+  });
+
+  /* ======================= Elektropneumatik ======================= */
+  const SOL = (left, right, extra) => Object.assign({ kind: '5/2', left, right }, extra || {});
+
+  /* EP1 ----------------------------------------------------------------- */
+  ex('EP1 · Magnetventil direkt (Taster → Spule)', 'Elektropneumatik: Der Taster S1 erregt die Spule Y1, das Magnetventil schaltet. Links der Pneumatikplan, rechts der Stromlaufplan.', (E) => {
+    const Y1 = E.at('coil', 'a', 560, 200, { label: 'Y1' });
+    const A = E.at('cylS', 'A', 210, 100, Object.assign({ label: 'A1' }, CYL));
+    const V = E.at('valve', '2', 210, 180, { p: V32('solenoid'), label: 'V1' });
+    E.bindCoil(V, 'L', Y1);
+    const W = E.at('wu', 'out', 210, 280, { label: 'WE' });
+    const Q = E.at('src', '1', 210, 380, { label: 'Q' });
+    E.w(V, '2', A, 'A'); E.w(V, '1', W, 'out'); E.w(W, 'in', Q, '1');
+    const b24 = E.at('bus', 't0', 560, 80, { p: { pot: '24', n: 4 } });
+    const b0 = E.at('bus', 't0', 560, 300, { p: { pot: '0', n: 4 } });
+    const S1 = E.at('ebtn', 'a', 560, 120, { label: 'S1' });
+    const H1 = E.at('lamp', 'a', 640, 200, { label: 'H1' });
+    E.w(b24, 't0', S1, 'a'); E.w(S1, 'b', Y1, 'a'); E.w(S1, 'b', H1, 'a'); E.w(Y1, 'b', b0, 't0'); E.w(H1, 'b', b0, 't2');
+    E.note('Pneumatikplan', 100, 40, 15);
+    E.note('Stromlaufplan', 520, 40, 15);
+    E.note('S1 drücken → Y1 erregt, A1 fährt aus', 280, 330, 12);
+  });
+
+  /* EP2 ----------------------------------------------------------------- */
+  ex('EP2 · Selbsthaltung mit Relais', 'EIN-Taster S1 und AUS-Taster S2 (Öffner): Das Relais K1 hält sich selbst und schaltet Magnetspule Y1 und Lampe H1.', (E) => {
+    const Y1 = E.at('coil', 'a', 720, 200, { label: 'Y1' });
+    const A = E.at('cylD', 'A', 170, 100, Object.assign({ label: 'A1' }, CYL));
+    const V = E.at('valve', '4', 170, 180, { p: SOL('solenoid', 'spring'), label: 'V1' });
+    E.bindCoil(V, 'L', Y1);
+    const W = E.at('wu', 'out', 180, 280, { label: 'WE' });
+    const Q = E.at('src', '1', 180, 380, { label: 'Q' });
+    E.w(V, '4', A, 'A'); E.w(V, '2', A, 'B'); E.w(V, '1', W, 'out'); E.w(W, 'in', Q, '1');
+    const b24 = E.at('bus', 't0', 560, 60, { p: { pot: '24', n: 7 } });
+    const b0 = E.at('bus', 't0', 560, 420, { p: { pot: '0', n: 7 } });
+    const S2 = E.at('ebtn', 'a', 560, 100, { p: { contact: 'nc' }, label: 'S2' });
+    const J1 = E.EJ(560, 180);
+    const S1 = E.at('ebtn', 'a', 560, 200, { label: 'S1' });
+    const K1c = E.at('kcont', 'a', 640, 200);
+    const J2 = E.EJ(560, 280);
+    const K1 = E.at('relay', 'a', 560, 300, { label: 'K1' });
+    E.bindRelay(K1c, K1);
+    const K1d = E.at('kcont', 'a', 720, 100);
+    E.bindRelay(K1d, K1);
+    const J3 = E.EJ(720, 180);
+    const H1 = E.at('lamp', 'a', 800, 200, { label: 'H1' });
+    E.w(b24, 't0', S2, 'a'); E.w(S2, 'b', J1, '1'); E.w(J1, '1', S1, 'a'); E.w(J1, '1', K1c, 'a');
+    E.w(S1, 'b', J2, '1'); E.w(K1c, 'b', J2, '1'); E.w(J2, '1', K1, 'a'); E.w(K1, 'b', b0, 't0');
+    E.w(b24, 't4', K1d, 'a'); E.w(K1d, 'b', J3, '1'); E.w(J3, '1', Y1, 'a'); E.w(J3, '1', H1, 'a');
+    E.w(Y1, 'b', b0, 't4'); E.w(H1, 'b', b0, 't6');
+    E.note('Pneumatikplan', 100, 20, 15);
+    E.note('Stromlaufplan: Selbsthaltung', 520, 20, 15);
+    E.note('S1 kurz drücken → K1 hält, A1 fährt aus · S2 → aus', 100, 490, 12);
+  });
+
+  /* EP3 ----------------------------------------------------------------- */
+  ex('EP3 · Automatischer Rücklauf mit Endlagengebern', 'Impulsventil mit zwei Spulen: S1 startet (nur bei eingefahrenem Zylinder, B1), der vordere Sensor B2 löst den Rückhub aus.', (E) => {
+    const Y1 = E.at('coil', 'a', 560, 260, { label: 'Y1' });
+    const Y2 = E.at('coil', 'a', 680, 260, { label: 'Y2' });
+    const A = E.at('cylD', 'A', 170, 100, Object.assign({ label: 'A1' }, CYL));
+    const V = E.at('valve', '4', 170, 180, { p: SOL('solenoid', 'solenoid'), label: 'V1' });
+    E.bindCoil(V, 'L', Y1); E.bindCoil(V, 'R', Y2);
+    const W = E.at('wu', 'out', 180, 280, { label: 'WE' });
+    const Q = E.at('src', '1', 180, 380, { label: 'Q' });
+    E.w(V, '4', A, 'A'); E.w(V, '2', A, 'B'); E.w(V, '1', W, 'out'); E.w(W, 'in', Q, '1');
+    const b24 = E.at('bus', 't0', 560, 60, { p: { pot: '24', n: 6 } });
+    const b0 = E.at('bus', 't0', 560, 380, { p: { pot: '0', n: 6 } });
+    const S1 = E.at('ebtn', 'a', 560, 100, { label: 'S1' });
+    const B1 = E.at('esens', 'a', 560, 180, { p: { style: 'prox' }, label: 'B1' });
+    const B2 = E.at('esens', 'a', 680, 100, { p: { style: 'prox' }, label: 'B2' });
+    E.bindSens(B1, A, 0); E.bindSens(B2, A, 1);
+    E.w(b24, 't0', S1, 'a'); E.w(S1, 'b', B1, 'a'); E.w(B1, 'b', Y1, 'a'); E.w(Y1, 'b', b0, 't0');
+    E.w(b24, 't3', B2, 'a'); E.w(B2, 'b', Y2, 'a'); E.w(Y2, 'b', b0, 't3');
+    E.note('Pneumatikplan', 100, 20, 15);
+    E.note('Stromlaufplan', 520, 20, 15);
+    E.note('S1 kurz drücken → A1 fährt aus und selbsttätig zurück', 100, 490, 12);
+  });
+
+  /* EP4 ----------------------------------------------------------------- */
+  ex('EP4 · Zeitrelais: Verweilzeit am Hubende', 'Am vorderen Hubende erregt B2 das anzugsverzögerte Relais K1 (3 s). Danach schließt der Kontakt K1 und Y2 fährt den Zylinder zurück.', (E) => {
+    const Y1 = E.at('coil', 'a', 560, 260, { label: 'Y1' });
+    const Y2 = E.at('coil', 'a', 800, 180, { label: 'Y2' });
+    const A = E.at('cylD', 'A', 170, 100, Object.assign({ label: 'A1' }, CYL));
+    const V = E.at('valve', '4', 170, 180, { p: SOL('solenoid', 'solenoid'), label: 'V1' });
+    E.bindCoil(V, 'L', Y1); E.bindCoil(V, 'R', Y2);
+    const W = E.at('wu', 'out', 180, 280, { label: 'WE' });
+    const Q = E.at('src', '1', 180, 380, { label: 'Q' });
+    E.w(V, '4', A, 'A'); E.w(V, '2', A, 'B'); E.w(V, '1', W, 'out'); E.w(W, 'in', Q, '1');
+    const b24 = E.at('bus', 't0', 560, 60, { p: { pot: '24', n: 8 } });
+    const b0 = E.at('bus', 't0', 560, 380, { p: { pot: '0', n: 8 } });
+    const S1 = E.at('ebtn', 'a', 560, 100, { label: 'S1' });
+    const B1 = E.at('esens', 'a', 560, 180, { p: { style: 'prox' }, label: 'B1' });
+    const B2 = E.at('esens', 'a', 680, 100, { p: { style: 'prox' }, label: 'B2' });
+    const K1 = E.at('relay', 'a', 680, 180, { p: { kind: 'on', delay: 3 }, label: 'K1' });
+    const K1c = E.at('kcont', 'a', 800, 100);
+    E.bindSens(B1, A, 0); E.bindSens(B2, A, 1); E.bindRelay(K1c, K1);
+    E.w(b24, 't0', S1, 'a'); E.w(S1, 'b', B1, 'a'); E.w(B1, 'b', Y1, 'a'); E.w(Y1, 'b', b0, 't0');
+    E.w(b24, 't3', B2, 'a'); E.w(B2, 'b', K1, 'a'); E.w(K1, 'b', b0, 't3');
+    E.w(b24, 't6', K1c, 'a'); E.w(K1c, 'b', Y2, 'a'); E.w(Y2, 'b', b0, 't6');
+    E.note('Pneumatikplan', 100, 20, 15);
+    E.note('Stromlaufplan: anzugsverzögertes Relais K1', 520, 20, 15);
+    E.note('S1 kurz drücken · Verzögerungszeit im Reiter „Bedienung“ live ändern', 100, 490, 12);
+  });
+
+  /* EP5 ----------------------------------------------------------------- */
+  ex('EP5 · Folgesteuerung A+ B+ A− B− (sensorgesteuert)', 'Zwei Zylinder mit Impulsventilen: A+ B+ A− B− nur mit Endlagengebern. Start mit S1. Pneumatikplan oben, Stromlaufplan unten.', (E) => {
+    const Y11 = E.at('coil', 'a', 60, 840, { label: '1Y1' }), Y12 = E.at('coil', 'a', 380, 840, { label: '1Y2' });
+    const Y21 = E.at('coil', 'a', 220, 840, { label: '2Y1' }), Y22 = E.at('coil', 'a', 540, 840, { label: '2Y2' });
+    const A = E.at('cylD', 'A', 140, 100, Object.assign({ label: '1A1', p: { stroke: 150 } }, CYL));
+    const B = E.at('cylD', 'A', 500, 100, Object.assign({ label: '2A1', p: { stroke: 150 } }, CYL));
+    const V1 = E.at('valve', '4', 140, 200, { p: SOL('solenoid', 'solenoid'), label: '1V1' });
+    const V2 = E.at('valve', '4', 500, 200, { p: SOL('solenoid', 'solenoid'), label: '2V1' });
+    E.bindCoil(V1, 'L', Y11); E.bindCoil(V1, 'R', Y12); E.bindCoil(V2, 'L', Y21); E.bindCoil(V2, 'R', Y22);
+    E.w(V1, '4', A, 'A'); E.w(V1, '2', A, 'B'); E.w(V2, '4', B, 'A'); E.w(V2, '2', B, 'B');
+    const J1 = E.J(150, 290), Jm = E.J(330, 290), J2 = E.J(510, 290);
+    const W = E.at('wu', 'out', 330, 360, { label: 'WE' });
+    const Q = E.at('src', '1', 330, 460, { label: 'Q' });
+    E.w(V1, '1', J1, '1'); E.w(V2, '1', J2, '1'); E.w(J1, '1', Jm, '1'); E.w(Jm, '1', J2, '1'); E.w(W, 'out', Jm, '1'); E.w(W, 'in', Q, '1');
+    /* Stromlaufplan: vier Strompfade */
+    const b24 = E.at('bus', 't0', 60, 560, { p: { pot: '24', n: 13 } });
+    const b0 = E.at('bus', 't0', 60, 960, { p: { pot: '0', n: 13 } });
+    const S1 = E.at('ebtn', 'a', 60, 600, { label: 'S1' });
+    const B11 = E.at('esens', 'a', 60, 680, { p: { style: 'prox' }, label: '1B1' });
+    const B21 = E.at('esens', 'a', 60, 760, { p: { style: 'prox' }, label: '2B1' });
+    const B12 = E.at('esens', 'a', 220, 600, { p: { style: 'prox' }, label: '1B2' });
+    const B22 = E.at('esens', 'a', 380, 600, { p: { style: 'prox' }, label: '2B2' });
+    const B13 = E.at('esens', 'a', 540, 600, { p: { style: 'prox' }, label: '1B1.2' });
+    E.bindSens(B11, A, 0); E.bindSens(B12, A, 1); E.bindSens(B13, A, 0); E.bindSens(B21, B, 0); E.bindSens(B22, B, 1);
+    E.w(b24, 't0', S1, 'a'); E.w(S1, 'b', B11, 'a'); E.w(B11, 'b', B21, 'a'); E.w(B21, 'b', Y11, 'a'); E.w(Y11, 'b', b0, 't0');
+    E.w(b24, 't4', B12, 'a'); E.w(B12, 'b', Y21, 'a'); E.w(Y21, 'b', b0, 't4');
+    E.w(b24, 't8', B22, 'a'); E.w(B22, 'b', Y12, 'a'); E.w(Y12, 'b', b0, 't8');
+    E.w(b24, 't12', B13, 'a'); E.w(B13, 'b', Y22, 'a'); E.w(Y22, 'b', b0, 't12');
+    E.note('Folgesteuerung A+ B+ A− B−', 40, 8, 16);
+    E.note('Stromlaufplan', 40, 530, 15);
+    E.note('S1 drücken: 1A1 aus → 2A1 aus → 1A1 ein → 2A1 ein', 640, 560, 12);
   });
 
   PS.EXAMPLES = EX;

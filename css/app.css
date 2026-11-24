@@ -24,6 +24,9 @@
   --sq-on: rgba(37, 99, 235, 0.12);
   --port: #e0314b;
   --label: #0b6a7c;
+  --wire-e: #b4443c;
+  --e24: #e5484d;
+  --e0: #3b82f6;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 4px 14px rgba(15, 23, 42, 0.07);
   --ui-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --sym-font: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
@@ -35,7 +38,7 @@
     --text: #e6ebf5; --muted: #93a1ba; --accent: #35b9d0; --accent-strong: #5fcce0; --accent-ink: #06222a;
     --accent-soft: rgba(53, 185, 208, 0.18); --danger: #ff7b68; --ok: #4ade80; --warn: #f3a845;
     --canvas: #111827; --grid-minor: #172033; --grid-major: #222e45; --paper: #161e2e; --ink: #dfe6f3; --ink-soft: #8d9bb5;
-    --wire: #b5c0d4; --sq-on: rgba(96, 165, 250, 0.16); --port: #ff6b86; --label: #5fcce0;
+    --wire: #b5c0d4; --sq-on: rgba(96, 165, 250, 0.16); --port: #ff6b86; --label: #5fcce0; --wire-e: #e0857d; --e24: #ff6b73; --e0: #6aa3ff;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
@@ -45,7 +48,7 @@
   --text: #e6ebf5; --muted: #93a1ba; --accent: #35b9d0; --accent-strong: #5fcce0; --accent-ink: #06222a;
   --accent-soft: rgba(53, 185, 208, 0.18); --danger: #ff7b68; --ok: #4ade80; --warn: #f3a845;
   --canvas: #111827; --grid-minor: #172033; --grid-major: #222e45; --paper: #161e2e; --ink: #dfe6f3; --ink-soft: #8d9bb5;
-  --wire: #b5c0d4; --sq-on: rgba(96, 165, 250, 0.16); --port: #ff6b86; --label: #5fcce0;
+  --wire: #b5c0d4; --sq-on: rgba(96, 165, 250, 0.16); --port: #ff6b86; --label: #5fcce0; --wire-e: #e0857d; --e24: #ff6b73; --e0: #6aa3ff;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
@@ -179,6 +182,13 @@ svg.ic .fill { fill: currentColor; stroke: none; }
 .simmode .port { display: none; }
 
 .wire .wline { fill: none; stroke: var(--wire); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.wire.elec .wline { stroke: var(--wire-e); stroke-width: 1.8; }
+.wire.elec.sel .wline { stroke: var(--accent); }
+.wire.short .wline { animation: shortp 0.5s ease-in-out infinite alternate; }
+@keyframes shortp { to { opacity: 0.35; } }
+.sym .ebar { fill: none; stroke-width: 3.6; stroke-linecap: round; }
+.sym .ebar.e24 { stroke: var(--e24); }
+.sym .ebar.e0 { stroke: var(--e0); }
 .wire .whit { fill: none; stroke: transparent; stroke-width: 12; stroke-linejoin: round; cursor: pointer; }
 .wire:hover .wline { stroke-width: 3; }
 .wire.sel .wline { stroke: var(--accent); stroke-width: 3; }
@@ -267,6 +277,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
 .ctl small { color: var(--muted); display: block; font-size: 11.5px; }
 .sw { border: 1px solid var(--line-strong); background: var(--panel-2); padding: 6px 12px; border-radius: 8px; font-weight: 700; min-width: 84px; user-select: none; touch-action: none; }
 .sw.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pill { padding: 3px 10px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line-strong); font-size: 12px; font-weight: 700; color: var(--muted); }
+.pill.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .bar { height: 7px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin-top: 4px; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }

@@ -10,7 +10,7 @@
   UI.thumb = function (item, pad) {
     const T = PS.types[item.type];
     const c = { id: 'thumb', type: item.type, x: 0, y: 0, rot: item.rot || 0, flip: !!item.flip, label: '', p: Object.assign(T.defaults(), PS.copy(item.p || {})) };
-    const ctx = { sim: null, rt: null, thumb: true, rot: c.rot, flip: c.flip, conn: () => false, sensors: () => [], pp: () => 0, flow: () => 0, cylLabel: () => null };
+    const ctx = { sim: null, rt: null, thumb: true, rot: c.rot, flip: c.flip, conn: () => false, sensors: () => [], pp: () => 0, flow: () => 0, cylLabel: () => null, refLabel: () => null, ecol: () => null };
     const b = PS.worldBBox(c);
     pad = pad == null ? 4 : pad;
     const tr = `${c.rot ? `rotate(${c.rot * 90}) ` : ''}${c.flip ? 'scale(-1 1)' : ''}`;
@@ -54,7 +54,7 @@
   /* ===================================================== Inspektor */
   const LIVE = {
     src: ['pressure'], wu: ['pset'], reg: ['pset'], rel: ['pset'], thr: ['open'], grv: ['open'], timer: ['delay'],
-    cylD: ['load', 'mass'], cylS: ['load', 'mass'], valve: ['pilotP'],
+    cylD: ['load', 'mass'], cylS: ['load', 'mass'], valve: ['pilotP'], epress: ['pset'], relay: ['delay'],
   };
 
   class Inspector {
@@ -105,8 +105,10 @@
       const d = this.ed.doc;
       this.body.innerHTML =
         `<div class="sec"><h3>Schaltplan</h3><div class="row"><label for="docName">Name</label><input type="text" id="docName" value="${esc(d.name)}"></div>` +
-        `<div class="kv"><span>Bauteile</span><b>${d.comps.filter((c) => c.type !== 'junction' && c.type !== 'note').length}</b><span>Leitungen</span><b>${d.wires.length}</b></div></div>` +
+        `<div class="kv"><span>Bauteile</span><b>${d.comps.filter((c) => !PS.types[c.type].junction && c.type !== 'note' && c.type !== 'bus').length}</b><span>Leitungen</span><b>${d.wires.length}</b></div></div>` +
         `<div class="empty"><h3>So geht's</h3><ul><li>Bauteile aus der Bibliothek ziehen oder anklicken.</li><li>Auf einen <b style="color:var(--port)">roten Anschluss</b> drücken und zu einem anderen ziehen.</li><li>Bauteil anklicken, um Eigenschaften (Druck, Hub, Betätigung …) zu ändern.</li><li>Oben auf <b>Simulation</b> wechseln und Taster bedienen.</li></ul></div>` +
+        `<div class="sec"><h3>Elektrik (Simulation)</h3>` +
+        `<div class="legend-p"><i style="background:${PS.ecol(24, 1)}"></i>+24 V, Strom fließt</div><div class="legend-p"><i style="background:${PS.ecol(24, 0)}"></i>+24 V, kein Strom</div><div class="legend-p"><i style="background:${PS.ecol(0, 1)}"></i>0 V</div></div>` +
         `<div class="sec"><h3>Druckfarben (Simulation)</h3>` +
         [0, 2, 4, 6].map((p) => `<div class="legend-p"><i style="background:${PS.pcol(p, 6) || 'var(--wire)'}"></i>${p === 0 ? 'drucklos (Umgebung)' : p + ' bar Überdruck'}</div>`).join('') + `</div>`;
       const nm = this.body.querySelector('#docName');
@@ -145,15 +147,23 @@
         } else if (p.type === 'text') {
           h += `<div class="row"><label for="${id}">${esc(p.label)}</label><input type="text" id="${id}" data-k="${p.k}" data-t="1" value="${esc(v)}"></div>`;
         } else if (p.type === 'bind') {
-          const cyls = ed.doc.comps.filter((o) => o.type === 'cylD' || o.type === 'cylS');
-          const def = PS.ACT[p.k === 'bindL' ? c.p.left : c.p.right] || {};
+          const side = p.k === 'bindL' ? 'left' : p.k === 'bindR' ? 'right' : null;
+          const adef = (side && PS.ACT[c.p[side]]) || {};
+          const tgt = p.target || (adef.coil ? 'coil' : 'cyl');
+          const TG = {
+            cyl: { types: ['cylD', 'cylS'], word: 'Zylinder', none: 'Noch kein Zylinder im Schaltplan.' },
+            coil: { types: ['coil'], word: 'Magnetspule', none: 'Noch keine Magnetspule (Elektrik) im Schaltplan.' },
+            relay: { types: ['relay'], word: 'Relais', none: 'Noch kein Relais im Schaltplan.' },
+          }[tgt];
+          const list = ed.doc.comps.filter((o) => TG.types.includes(o.type));
           const bd = v || null;
-          h += `<div class="row"><label for="${id}">${esc(p.label)} → Zylinder</label><select id="${id}" data-k="${p.k}" data-bc="1"><option value="">— nicht zugeordnet —</option>${cyls.map((o) => `<option value="${o.id}"${bd && bd.cyl === o.id ? ' selected' : ''}>${esc(o.label || o.id)}</option>`).join('')}</select></div>`;
-          if (bd) {
+          h += `<div class="row"><label for="${id}">${esc(p.label)} → ${TG.word}</label><select id="${id}" data-k="${p.k}" data-bc="${tgt}"><option value="">— nicht zugeordnet —</option>${list.map((o) => `<option value="${o.id}"${bd && bd[tgt] === o.id ? ' selected' : ''}>${esc(o.label || o.id)}</option>`).join('')}</select></div>`;
+          if (bd && tgt === 'cyl') {
             h += `<div class="row"><label>Position am Hub</label><div class="numrow"><input type="range" data-k="${p.k}" data-bp="1" min="0" max="100" step="1" value="${Math.round(bd.pos * 100)}" aria-label="Position"><div class="unit"><input type="number" data-k="${p.k}" data-bpn="1" min="0" max="100" step="1" value="${Math.round(bd.pos * 100)}"><em>%</em></div></div></div>` +
               `<div class="btnrow" style="margin:-4px 0 12px"><button class="btn sm" data-k="${p.k}" data-pos="0">hinten (0 %)</button><button class="btn sm" data-k="${p.k}" data-pos="100">vorn (100 %)</button></div>`;
-            if (def.oneway) h += `<div class="row"><label for="${id}d">Wirkrichtung</label><select id="${id}d" data-k="${p.k}" data-bd="1"><option value="1"${(bd.dir || (bd.pos >= 0.5 ? 1 : -1)) === 1 ? ' selected' : ''}>beim Ausfahren</option><option value="-1"${(bd.dir || (bd.pos >= 0.5 ? 1 : -1)) === -1 ? ' selected' : ''}>beim Einfahren</option></select></div>`;
-          } else if (!cyls.length) h += `<p class="empty" style="margin:-6px 0 12px">Noch kein Zylinder im Schaltplan.</p>`;
+            if (adef.oneway) h += `<div class="row"><label for="${id}d">Wirkrichtung</label><select id="${id}d" data-k="${p.k}" data-bd="1"><option value="1"${(bd.dir || (bd.pos >= 0.5 ? 1 : -1)) === 1 ? ' selected' : ''}>beim Ausfahren</option><option value="-1"${(bd.dir || (bd.pos >= 0.5 ? 1 : -1)) === -1 ? ' selected' : ''}>beim Einfahren</option></select></div>`;
+          } else if (!bd && !list.length) h += `<p class="empty" style="margin:-6px 0 12px">${TG.none}</p>`;
+          if (tgt === 'coil' && bd) h += `<p class="empty" style="margin:-6px 0 12px">Die Spule im Stromlaufplan schaltet dieses Ventil. Die Handhilfsbetätigung in „Bedienung“ wirkt zusätzlich.</p>`;
         }
       });
       this.body.innerHTML = h;
@@ -178,7 +188,11 @@
       this.body.querySelectorAll('input[data-t]').forEach((t) => { t.oninput = () => apply(t.dataset.k, t.value); });
       const setBind = (k, mut) => { const cur = c.p[k] ? Object.assign({}, c.p[k]) : null; const nx = mut(cur); c.p[k] = nx; ed.paramChanged(c); };
       this.body.querySelectorAll('select[data-bc]').forEach((s) => {
-        s.onchange = () => { setBind(s.dataset.k, (cur) => (s.value ? { cyl: s.value, pos: cur ? cur.pos : (c.p[s.dataset.k === 'bindL' ? 'left' : 'right'] === 'rollerIdle' ? 1 : 1) } : null)); this.renderProps(); };
+        s.onchange = () => {
+          const tgt = s.dataset.bc;
+          setBind(s.dataset.k, (cur) => (s.value ? (tgt === 'cyl' ? { cyl: s.value, pos: cur && cur.pos != null ? cur.pos : 1 } : { [tgt]: s.value }) : null));
+          this.renderProps();
+        };
       });
       this.body.querySelectorAll('input[data-bp]').forEach((r) => {
         const n = this.body.querySelector(`input[data-bpn][data-k="${r.dataset.k}"]`);
@@ -203,15 +217,9 @@
       const comps = ed.doc.comps;
       let h = '';
       const ctl = [];
-      comps.forEach((c) => {
-        if (c.type !== 'valve') return;
-        ['L', 'R'].forEach((sd) => {
-          const kind = sd === 'L' ? c.p.left : c.p.right, def = PS.ACT[kind];
-          if (def && def.manual) ctl.push({ c, sd, def, kind });
-        });
-      });
+      comps.forEach((c) => PS.operables(c).forEach((op) => ctl.push({ c, sd: op.side, def: { name: op.name, latch: op.latch } })));
       if (ctl.length) {
-        h += `<div class="sec"><h3>Betätigung</h3>`;
+        h += `<div class="sec"><h3>Bedienung</h3>`;
         ctl.forEach((o, i) => {
           const two = ctl.filter((x) => x.c === o.c).length > 1;
           h += `<div class="ctl"><div><b>${esc(o.c.label || o.c.type)}</b><small>${esc(o.def.name)}${two ? (o.sd === 'L' ? ' (links)' : ' (rechts)') : ''}</small></div><button class="sw" data-i="${i}" aria-pressed="false">${o.def.latch ? 'Aus' : 'Drücken'}</button></div>`;
@@ -233,6 +241,12 @@
         gs.forEach((c) => { h += `<div class="ctl"><b>${esc(c.label || c.id)}</b><span data-g="${c.id}" style="font-variant-numeric:tabular-nums;font-weight:700">–</span></div>`; });
         h += `</div>`;
       }
+      const els = comps.filter((c) => ['lamp', 'coil', 'relay'].includes(c.type));
+      if (els.length) {
+        h += `<div class="sec"><h3>Elektrik</h3>`;
+        els.forEach((c) => { h += `<div class="ctl"><div><b>${esc(c.label || c.id)}</b><small>${esc(PS.types[c.type].name)}</small></div><span class="pill" data-e="${c.id}">aus</span></div>`; });
+        h += `</div>`;
+      }
       const live = [];
       comps.forEach((c) => (LIVE[c.type] || []).forEach((k) => {
         const T = PS.types[c.type], pd = (T.params || []).find((p) => p.k === k);
@@ -245,8 +259,8 @@
         });
         h += `</div>`;
       }
-      if (sim.warnings.length) h += `<div class="sec"><h3>Hinweise</h3><ul class="warnlist">${sim.warnings.map((w) => `<li>${esc(w.msg)}</li>`).join('')}</ul></div>`;
-      if (!ctl.length && !cyls.length && !gs.length && !live.length) h += `<div class="empty"><h3>Leerer Schaltplan</h3><p>Füge im Bearbeiten-Modus Bauteile hinzu.</p></div>`;
+      h += `<div class="sec" id="warnSec"></div>`;
+      if (!ctl.length && !cyls.length && !gs.length && !live.length && !els.length) h += `<div class="empty"><h3>Leerer Schaltplan</h3><p>Füge im Bearbeiten-Modus Bauteile hinzu.</p></div>`;
       this.body.innerHTML = h;
       this.simEls = { ctl };
 
@@ -290,8 +304,16 @@
           set(`[data-cyl="${c.id}"][data-f="t"]`, `${rt.tExt != null ? PS.fmt(rt.tExt, 2) : '–'} / ${rt.tRet != null ? PS.fmt(rt.tRet, 2) : '–'} s`);
         } else if (c.type === 'gauge') {
           set(`[data-g="${c.id}"]`, PS.fmt(sim.P[rt.node] - PS.P0, 2) + ' bar');
+        } else if (c.type === 'lamp' || c.type === 'coil' || c.type === 'relay') {
+          const pill = b.querySelector(`[data-e="${c.id}"]`);
+          if (pill) {
+            const txt = c.type === 'lamp' ? (rt.on ? 'leuchtet' : 'aus') : c.type === 'coil' ? (rt.on ? 'erregt' : 'aus') : (rt.pulled ? 'angezogen' : rt.on ? 'erregt …' : 'abgefallen');
+            if (pill.textContent !== txt) { pill.textContent = txt; pill.classList.toggle('on', c.type === 'relay' ? !!rt.pulled : !!rt.on); }
+          }
         }
       });
+      const ws = sim.allWarnings(), key = ws.map((w) => w.msg).join('|'), sec = b.querySelector('#warnSec');
+      if (sec && sec._k !== key) { sec._k = key; sec.innerHTML = ws.length ? `<h3>Hinweise</h3><ul class="warnlist">${ws.map((w) => `<li>${esc(w.msg)}</li>`).join('')}</ul>` : ''; }
     }
   }
   UI.Inspector = Inspector;

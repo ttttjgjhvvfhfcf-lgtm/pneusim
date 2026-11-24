@@ -59,7 +59,7 @@
   });
 
   PS.defType({
-    id: 'junction', name: 'Verzweigung', prefix: '', dyn: true, noLabel: true,
+    id: 'junction', name: 'Verzweigung', prefix: '', dyn: true, noLabel: true, junction: true,
     defaults: () => ({}), params: [],
     ports: () => [{ id: '1', x: 0, y: 0, dir: 'any', kind: 'any' }],
     bbox: () => ({ x0: -5, y0: -5, x1: 5, y1: 5 }),
@@ -573,7 +573,7 @@
     { cat: 'Energieversorgung', items: [
       { type: 'src', name: 'Druckluftquelle' },
       { type: 'wu', name: 'Wartungseinheit' },
-      { type: 'junction', name: 'Verzweigung' },
+      { type: 'junction', name: 'Verzweigung (pneumatisch)' },
       { type: 'exh', name: 'Entlüftung' },
       { type: 'exh', name: 'Entlüftung mit Schalldämpfer', p: { muffler: true } },
       { type: 'tank', name: 'Druckluftbehälter' },

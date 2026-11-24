@@ -172,7 +172,7 @@
     const out = [];
     for (const c of doc.comps) {
       const T = PS.types[c.type];
-      if (!T || T.noRoute || c.type === 'junction' || c.type === 'note') continue;
+      if (!T || T.noRoute || T.junction || c.type === 'note') continue;
       if (ignoreIds && ignoreIds.has(c.id)) continue;
       out.push(PS.worldBody(c));
     }

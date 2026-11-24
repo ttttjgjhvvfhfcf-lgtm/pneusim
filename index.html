@@ -120,8 +120,15 @@
     <tr><td><b>Live-Werte</b></td><td>Betriebsdruck, Drosselöffnung u. a. lassen sich im Reiter „Bedienung“ während des Laufs verstellen.</td></tr>
     <tr><td><b>Leertaste</b></td><td>Pause / Weiter.</td></tr>
   </table>
+  <h3>Elektropneumatik</h3>
+  <p>Neben dem Pneumatikplan lässt sich im selben Schaltplan ein <b>Stromlaufplan</b> zeichnen: Spannungsschienen (+24 V / 0 V), Taster und Schalter, Endlagen- und Näherungsschalter am Zylinder, Druckschalter, Relais (auch zeitverzögert) mit Kontakten, Magnetspulen und Meldeleuchten.</p>
+  <table>
+    <tr><td><b>Verdrahten</b></td><td>Elektrische und pneumatische Anschlüsse lassen sich nicht miteinander verbinden. Elektrische Leitungen sind rötlich, Verzweigungen entstehen wie in der Pneumatik durch Ziehen auf eine Leitung.</td></tr>
+    <tr><td><b>Zuordnungen</b></td><td>Ventil mit „Elektromagnet“ → Spule Y wählen. Relaiskontakt → Relais K wählen. Endlagen-/Näherungsschalter → Zylinder und Hubposition wählen.</td></tr>
+    <tr><td><b>Simulation</b></td><td>Leitungen zeigen Potenzial und Strom (rot: +24 V, hell: ohne Strom, blau: 0 V). Kontakte, Spulen, Relais und Lampen zeigen ihren Zustand. Berühren sich +24 V und 0 V, erscheint eine Kurzschlussmeldung.</td></tr>
+  </table>
   <h3>Hinweise zum Modell</h3>
-  <p>Jedes Leitungsnetz ist ein Druckvolumen; Ventile sind Blenden nach ISO 6358 mit Schaltzeit; Zylinder werden mit Masse, Reibung und Last berechnet. Die Werte sind realistisch gewählt, ersetzen aber keine Auslegungsrechnung.</p>
+  <p>Jedes Leitungsnetz ist ein Druckvolumen; Ventile sind Blenden nach ISO 6358 mit Schaltzeit; Zylinder werden mit Masse, Reibung und Last berechnet. Die Werte sind realistisch gewählt, ersetzen aber keine Auslegungsrechnung. Der Stromkreis wird logisch gelöst (24 V / 0 V / potenzialfrei): Eine Last ist erregt, wenn sie zwischen +24 V und 0 V liegt; Spannungsteilung in Reihe geschalteter Lasten wird nicht nachgebildet.</p>
 </div></dialog>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -155,6 +162,7 @@
 <script src="js/util.js"></script>
 <script src="js/valves.js"></script>
 <script src="js/parts.js"></script>
+<script src="js/electric.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/doc.js"></script>
 <script src="js/router.js"></script>

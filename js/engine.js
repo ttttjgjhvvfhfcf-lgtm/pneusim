@@ -38,6 +38,9 @@
       this.warnings = [];
       this.portNode = {};
       this.wireNode = {};
+      this.eport = {};
+      this.ewireNet = {};
+      this.elec = null;
       this.maxSupply = 6;
       this.dtNext = 2e-4;
       this.addNode(1, true, () => P0); // Knoten 0 = Atmosphäre
@@ -104,6 +107,12 @@
       }
       return done;
     }
+    /* Hinweise: statische beim Aufbau + laufende (z. B. Kurzschluss) */
+    allWarnings() {
+      const w = this.warnings.slice();
+      if (this.elec && this.elec.shorted) w.push({ msg: 'Kurzschluss: +24 V und 0 V sind leitend verbunden.' });
+      return w;
+    }
     pg(cid, pid) { const n = this.portNode[cid + ':' + pid]; return n == null ? 0 : this.P[n] - P0; }
     /* Volumenstrom (NL/s) in das Bauteil hinein, je Anschluss */
     portFlows() {
@@ -117,6 +126,69 @@
   }
   PS.Sim = Sim;
 
+  /* ---------- Elektrik: logischer Gleichstrom-Löser ----------
+   * Netze sind durch Leitungen verbundene Anschlüsse. Geschlossene Kontakte verbinden Netze leitend,
+   * Quellen legen +24 V bzw. 0 V an. Eine Last (Spule, Lampe) ist erregt, wenn ihre beiden Klemmen
+   * an 24 V und 0 V liegen. Verbinden sich beide Potenziale direkt, liegt ein Kurzschluss vor.
+   * Stromführend sind alle Netze, hinter denen (von der Schiene aus gesehen) eine erregte Last liegt. */
+  class Elec {
+    constructor() {
+      this.n = 0; this.sw = []; this.loads = []; this.src = [];
+      this.shorted = false;
+    }
+    addNet() { return this.n++; }
+    finalize() {
+      const n = this.n;
+      this.par = new Int32Array(n); this.gpot = new Int8Array(n); this.cur = new Uint8Array(n);
+      this.mark = new Uint8Array(n); this.need = new Uint8Array(n); this.pnt = new Int32Array(n); this.queue = new Int32Array(n);
+      this.adj = Array.from({ length: n }, () => []);
+    }
+    find(i) { const p = this.par; while (p[i] !== i) { p[i] = p[p[i]]; i = p[i]; } return i; }
+    /* Potenzial eines Netzes: 24, 0, null (potenzialfrei) oder 'S' (Kurzschluss) */
+    pot(i) { const g = this.gpot[i]; return g === 1 ? 24 : g === 2 ? 0 : g === 3 ? 'S' : null; }
+    solve() {
+      const n = this.n;
+      if (!n) return;
+      const p = this.par, adj = this.adj;
+      for (let i = 0; i < n; i++) { p[i] = i; adj[i].length = 0; }
+      for (const s of this.sw) {
+        if (!s.f()) continue;
+        adj[s.a].push(s.b); adj[s.b].push(s.a);
+        const a = this.find(s.a), b = this.find(s.b);
+        if (a !== b) p[a] = b;
+      }
+      const h = this.mark; h.fill(0);
+      for (const s of this.src) h[this.find(s.net)] |= s.pot === 24 ? 1 : 2;
+      let shorted = false;
+      for (let i = 0; i < n; i++) { const m = h[this.find(i)]; this.gpot[i] = m; if (m === 3) shorted = true; }
+      this.shorted = shorted;
+      const need = this.need; need.fill(0);
+      for (const l of this.loads) {
+        const pa = this.gpot[l.a], pb = this.gpot[l.b];
+        const on = (pa === 1 && pb === 2) || (pa === 2 && pb === 1);
+        l.rt.on = on;
+        if (on) { need[l.a] = 1; need[l.b] = 1; }
+      }
+      /* Stromfluss: Baum von den Schienen aus; Netze mit erregter Last dahinter führen Strom */
+      this.cur.fill(0);
+      for (const pot of [24, 0]) {
+        const seen = this.pnt, q = this.queue;
+        seen.fill(-2);
+        let head = 0, tail = 0;
+        for (const s of this.src) if (s.pot === pot && seen[s.net] === -2) { seen[s.net] = -1; q[tail++] = s.net; }
+        while (head < tail) {
+          const u = q[head++];
+          for (const v of adj[u]) if (seen[v] === -2) { seen[v] = u; q[tail++] = v; }
+        }
+        for (let k = tail - 1; k >= 0; k--) {
+          const u = q[k];
+          if (need[u]) { this.cur[u] = 1; if (seen[u] >= 0) need[seen[u]] = 1; }
+        }
+      }
+    }
+  }
+  PS.Elec = Elec;
+
   /* ---------- Schaltplan -> Simulation ---------- */
   PS.compile = function (doc) {
     const sim = new Sim();
@@ -124,37 +196,45 @@
     const byId = {};
     comps.forEach((c) => (byId[c.id] = c));
 
-    const parent = new Map();
-    const find = (k) => {
-      let r = k;
-      while (parent.get(r) !== r) r = parent.get(r);
-      while (parent.get(k) !== r) { const nx = parent.get(k); parent.set(k, r); k = nx; }
-      return r;
+    /* Zwei getrennte Netzwerke: pneumatisch (Standard) und elektrisch (Anschlüsse mit dom:'e') */
+    const mkUF = () => {
+      const parent = new Map();
+      const find = (k) => {
+        let r = k;
+        while (parent.get(r) !== r) r = parent.get(r);
+        while (parent.get(k) !== r) { const nx = parent.get(k); parent.set(k, r); k = nx; }
+        return r;
+      };
+      const union = (a, b) => {
+        if (!parent.has(a) || !parent.has(b)) return;
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent.set(ra, rb);
+      };
+      return { parent, find, union };
     };
-    const union = (a, b) => {
-      if (!parent.has(a) || !parent.has(b)) return;
-      const ra = find(a), rb = find(b);
-      if (ra !== rb) parent.set(ra, rb);
-    };
+    const UFP = mkUF(), UFE = mkUF();
     const portDefs = {};
     for (const c of comps) {
       const T = PS.types[c.type];
       if (!T) continue;
       for (const p of T.ports(c)) {
         const k = c.id + ':' + p.id;
-        parent.set(k, k);
+        (p.dom === 'e' ? UFE : UFP).parent.set(k, k);
         portDefs[k] = { c, p };
       }
     }
+    const ufOf = (k) => (portDefs[k] && portDefs[k].p.dom === 'e' ? UFE : UFP);
     const connected = new Set();
     const wk = (e) => e.c + ':' + e.p;
     for (const w of wires) {
-      if (parent.has(wk(w.a)) && parent.has(wk(w.b))) { union(wk(w.a), wk(w.b)); connected.add(wk(w.a)); connected.add(wk(w.b)); }
+      const ka = wk(w.a), kb = wk(w.b);
+      if (portDefs[ka] && portDefs[kb] && ufOf(ka) === ufOf(kb)) { ufOf(ka).union(ka, kb); connected.add(ka); connected.add(kb); }
     }
     for (const c of comps) {
       const T = PS.types[c.type];
-      if (T && T.merge) for (const [a, b] of T.merge(c)) union(c.id + ':' + a, c.id + ':' + b);
+      if (T && T.merge) for (const [a, b] of T.merge(c)) { const ka = c.id + ':' + a; ufOf(ka).union(ka, c.id + ':' + b); }
     }
+    const find = UFP.find, parent = UFP.parent;
     const nets = new Map();
     const netOf = (k) => {
       const r = find(k);
@@ -175,7 +255,7 @@
     sim.maxSupply = maxSupply || 6;
     for (const n of nets.values()) n.vol = 0.02 + 0.003 * n.keys.length;
     for (const w of wires) {
-      if (!parent.has(wk(w.a))) continue;
+      if (!parent.has(wk(w.a)) || !parent.has(wk(w.b))) continue;
       const len = w.len != null ? w.len : 60;
       netOf(wk(w.a)).vol += 0.00004 * len;
     }
@@ -194,7 +274,17 @@
       if (p.kind === 'exh' && n.keys.length === 1 && !connected.has(k)) idx = 0; // unbeschalteter Abluftanschluss entlüftet frei
       sim.portNode[k] = idx;
     }
-    for (const w of wires) if (parent.has(wk(w.a))) sim.wireNode[w.id] = sim.portNode[wk(w.a)];
+    for (const w of wires) if (parent.has(wk(w.a)) && parent.has(wk(w.b))) sim.wireNode[w.id] = sim.portNode[wk(w.a)];
+
+    /* Elektrische Netze */
+    const elec = (sim.elec = new Elec());
+    const enet = new Map();
+    for (const k of UFE.parent.keys()) {
+      const r = UFE.find(k);
+      if (!enet.has(r)) enet.set(r, elec.addNet());
+      sim.eport[k] = enet.get(r);
+    }
+    for (const w of wires) if (sim.eport[wk(w.a)] != null && ufOf(wk(w.a)) === UFE && ufOf(wk(w.b)) === UFE) sim.ewireNet[w.id] = sim.eport[wk(w.a)];
 
     for (const c of comps) {
       const T = PS.types[c.type];
@@ -210,11 +300,21 @@
         hook: (fn) => sim.hooks.push(fn),
         chamber: (node, vol, dv) => sim.chambers.push({ node, vol, dv }),
         hasComp: (id) => !!byId[id],
+        comp: (id) => byId[id] || null,
         warnIf: (cond, msg) => { if (cond) sim.warnings.push({ cid: c.id, msg: `${c.label || T.name} ${msg}` }); },
+        /* Elektrik */
+        enet: (pid) => sim.eport[c.id + ':' + pid],
+        eNew: () => elec.addNet(),
+        eSwitch: (a, b, f) => elec.sw.push({ a, b, f }),
+        eLink: (a, b) => elec.sw.push({ a, b, f: () => true }),
+        eLoad: (a, b) => elec.loads.push({ a, b, rt }),
+        eSource: (net, pot) => elec.src.push({ net, pot }),
       };
       if (T.build) T.build(c, B);
     }
     sim.finalize();
+    elec.finalize();
+    if (elec.n) { elec.solve(); sim.hooks.push(() => elec.solve()); }
     return sim;
   };
 

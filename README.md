@@ -29,8 +29,14 @@ Für eine einzelne HTML-Datei (CSS und JS inline): `node scripts/bundle.js` → 
 - Taster halten, Hebel/Magnete rasten (`Umschalt`+Klick rastet auch Taster ein), Tempo 0,1×–2×, Pause, Einzelschritt, Reset
 - Weg-Zeit-Diagramm (Zylinderwege und Manometer), Hubzeitmessung, Live-Verstellen von Betriebsdruck, Drosselöffnung, Last, Verzögerungszeit u. a.
 
+**Elektropneumatik**
+- Stromlaufplan im selben Schaltplan: +24-V-/0-V-Schienen, Taster (Schließer/Öffner/Wechsler, tastend oder rastend, Not-Aus), Endlagen- und Näherungsschalter am Zylinder,
+  Druckschalter (pneumatischer Eingang, elektrischer Kontakt), Relais (unverzögert, anzug- und abfallverzögert) mit zugeordneten Kontakten, Magnetspulen für die Ventile, Meldeleuchten
+- Magnetventile werden einer Spule im Stromlaufplan zugeordnet, Rollen-/Näherungsschalter einem Zylinder und einer Hubposition
+- Pneumatik und Elektrik sind getrennte Netze (Anschlüsse verschiedener Art lassen sich nicht verbinden); Leitungen zeigen Potenzial und Stromfluss, kurzgeschlossene Schienen werden gemeldet
+
 **Beispiele** (Menü „Beispiele“): direkte/indirekte Ansteuerung, Abluftdrosselung, Schnellentlüftung, ODER/UND, automatischer Rücklauf,
-Dauerlauf, Zeitverzögerung, Druckfolgeventil und eine Kaskadensteuerung **A+ B+ B− A−**.
+Dauerlauf, Zeitverzögerung, Druckfolgeventil und eine Kaskadensteuerung **A+ B+ B− A−** sowie fünf elektropneumatische Beispiele (Magnetventil direkt, Selbsthaltung mit Relais, Rücklauf mit Endlagengebern, Zeitrelais, sensorgesteuerte Folge A+ B+ A− B−).
 
 ## Bedienung
 
@@ -53,7 +59,8 @@ index.html          Seitengerüst
 css/app.css         Oberfläche (hell/dunkel) und Symbolstile
 js/util.js          Geometrie, Farben, SVG-Helfer
 js/valves.js        Wegeventile: Symbolgeometrie, Betätigungen, Schaltlogik
-js/parts.js         übrige Bauteile (Symbole, Anschlüsse, Verhalten) und Palette
+js/parts.js         übrige pneumatische Bauteile (Symbole, Anschlüsse, Verhalten) und Palette
+js/electric.js      Elektropneumatik: Schienen, Taster, Sensoren, Relais, Spulen, Lampen
 js/engine.js        Simulation: Netze → Druckknoten, Durchflussmodell, Zeitintegration
 js/doc.js           Dokumentmodell, (De-)Serialisierung
 js/router.js        Leitungsverlegung (A*)
@@ -75,6 +82,8 @@ Jedes durch Leitungen verbundene Netz ist ein isothermes Druckvolumen *V*. Zwisc
 - Zylinder: Knoten mit veränderlichem Volumen, `m·a = Σ F` (Druckkraft, Feder, Reibung, Last, Dämpfung, Endanschläge)
 
 Pro Knoten gilt `V·dp/dt = p0·Q − p·dV/dt`; die Schrittweite wird adaptiv aus der Steifigkeit der Knoten bestimmt.
+
+Der **Stromkreis** wird logisch gelöst: Geschlossene Kontakte verbinden Netze leitend, Schienen legen +24 V bzw. 0 V an, eine Last (Spule, Lampe) ist erregt, wenn sie zwischen beiden Potenzialen liegt. Relais haben Schaltzeiten (anzug-/abfallverzögert einstellbar), Geber folgen der Kolbenposition, Magnetspulen schalten die Ventile. Spannungsteilung in Reihe geschalteter Lasten wird nicht nachgebildet.
 Die Parameter sind plausibel gewählt, ersetzen aber keine Auslegungsrechnung.
 
 ## Tests

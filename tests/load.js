@@ -4,7 +4,7 @@ const path = require('path');
 const vm = require('vm');
 const root = path.join(__dirname, '..', 'js');
 globalThis.PS = {};
-for (const f of ['util', 'valves', 'parts', 'engine', 'doc', 'examples']) {
+for (const f of ['util', 'valves', 'parts', 'electric', 'engine', 'doc', 'examples']) {
   const file = path.join(root, f + '.js');
   if (!fs.existsSync(file)) continue;
   vm.runInThisContext(fs.readFileSync(file, 'utf8'), { filename: file });

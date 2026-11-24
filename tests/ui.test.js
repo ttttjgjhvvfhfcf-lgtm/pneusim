@@ -208,7 +208,7 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL:', m); } else 
   ok(bind && bind.cyl === ids.cyl && bind.pos === 1, 'Rollenventil dem Zylinder (Position vorn) zugeordnet');
   ok((await page.evaluate(() => document.querySelectorAll('.t-cylD .sensor').length)) === 1, 'Geber-Markierung am Zylinder sichtbar');
   // Verzweigung auswählen per Klick
-  await page.locator('.pitem', { hasText: 'Verzweigung' }).click();
+  await page.locator('.pitem', { hasText: 'Verzweigung (pneumatisch)' }).click();
   const jc = await page.evaluate(() => PSapp.ed.doc.comps.find((c) => c.type === 'junction').id);
   await page.evaluate(() => PSapp.ed.select([]));
   const jp = await portXY(jc, '1');
@@ -217,6 +217,62 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL:', m); } else 
   // leerer Plan in der Simulation
   await page.evaluate(() => PSapp.loadDoc(PS.Doc.create('leer')));
   await page.click('#modeSim'); await page.waitForTimeout(300);
+  await page.click('#modeEdit');
+
+  console.log('Elektropneumatik');
+  await page.evaluate(() => PSapp.loadDoc(PS.Doc.create('ep')));
+  const addItem = async (name) => { await page.locator('.pitem', { hasText: name }).first().click(); return page.evaluate(() => PSapp.ed.doc.comps[PSapp.ed.doc.comps.length - 1].id); };
+  const evalve = await addItem('3/2 Magnetventil');
+  const ecoil = await addItem('Magnetspule (Ventil)');
+  const eb24 = await addItem('+24-V-Schiene');
+  const ebtnId = await addItem('Taster (Schließer)');
+  const ekc = await addItem('Relaiskontakt (Schließer)');
+  const erel = await addItem('Relais');
+  const elamp = await addItem('Meldeleuchte');
+  // Spule dem Ventil zuordnen
+  await page.evaluate((id) => PSapp.ed.select([id]), evalve);
+  await page.selectOption('select[data-bc="coil"]', ecoil);
+  ok((await page.evaluate((id) => PSapp.ed.byId(id).p.bindL, evalve)).coil === ecoil, 'Magnetspule dem Ventil zugeordnet');
+  // Relaiskontakt dem Relais zuordnen
+  await page.evaluate((id) => PSapp.ed.select([id]), ekc);
+  await page.selectOption('select[data-bc="relay"]', erel);
+  ok((await page.evaluate((id) => PSapp.ed.byId(id).p.bind, ekc)).relay === erel, 'Relaiskontakt dem Relais zugeordnet');
+  // Domänentrennung: pneumatischer Anschluss darf nicht an elektrischen
+  const ebefore = await page.evaluate(() => PSapp.ed.doc.wires.length);
+  const eok1 = await page.evaluate(([v, k]) => !!PSapp.ed.addWire({ c: v, p: '1' }, { c: k, p: 'a' }), [evalve, ekc]);
+  ok(!eok1 && (await page.evaluate(() => PSapp.ed.doc.wires.length)) === ebefore, 'Pneumatik- und Elektroanschluss lassen sich nicht verbinden');
+  const eok2 = await page.evaluate(([c, k]) => !!PSapp.ed.addWire({ c, p: 'a' }, { c: k, p: 'b' }), [ecoil, ekc]);
+  ok(eok2, 'Elektroanschlüsse lassen sich verbinden');
+  // Schienenanschluss per Maus auf Spule ziehen: nur gleiche Domäne rastet ein
+  await page.evaluate(() => PSapp.ed.fit());
+  const epa = await portXY(ebtnId, 'a');
+  const epv = await portXY(evalve, '1');
+  await page.mouse.move(epa[0], epa[1]); await page.mouse.down(); await page.mouse.move(epv[0], epv[1], { steps: 8 });
+  const ehov = await page.evaluate(() => PSapp.ed.wiring && PSapp.ed.wiring.hover);
+  await page.mouse.up(); await page.keyboard.press('Escape');
+  ok(!ehov, 'beim Ziehen werden Anschlüsse der anderen Domäne nicht angeboten');
+  // Elektrische Verzweigung durch Ziehen auf eine elektrische Leitung
+  await page.evaluate(() => PSapp.loadDoc(PS.EXAMPLES[12].build()));
+  await page.waitForTimeout(300);
+  const ewp = await page.evaluate(() => { const w = PSapp.ed.doc.wires.find((w) => w._dom === 'e'); const pts = w._pts; const i = Math.floor((pts.length - 1) / 2); const a = pts[i], b = pts[i + 1]; const r = PSapp.ed.svg.getBoundingClientRect(), v = PSapp.ed.view; return [r.x + v.x + ((a[0] + b[0]) / 2) * v.k, r.y + v.y + ((a[1] + b[1]) / 2) * v.k]; });
+  await page.locator('.pitem', { hasText: 'Meldeleuchte' }).first().click();
+  const elid = await page.evaluate(() => PSapp.ed.doc.comps[PSapp.ed.doc.comps.length - 1].id);
+  const elp = await portXY(elid, 'a');
+  await page.mouse.move(elp[0], elp[1]); await page.mouse.down(); await page.mouse.move(ewp[0], ewp[1], { steps: 8 }); await page.mouse.up();
+  ok(await page.evaluate(() => PSapp.ed.doc.comps.some((c) => c.type === 'ejunction') && !PSapp.ed.doc.comps.some((c) => c.type === 'junction')), 'elektrische Verzweigung (ejunction) auf Leitung erzeugt');
+  await page.keyboard.press('Control+z');
+  // Simulation: elektrischen Taster bedienen
+  await page.evaluate(() => PSapp.loadDoc(PS.EXAMPLES[12].build()));
+  await page.click('#modeSim');
+  await page.evaluate(() => { PSapp.ed.speed = 2; });
+  const esb = await page.evaluate(() => { const c = PSapp.ed.doc.comps.find((c) => c.label === 'S1'); const r = document.querySelector(`.comp[data-cid="${c.id}"] .act`).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await page.mouse.move(esb[0], esb[1]); await page.mouse.down(); await page.waitForTimeout(900);
+  const est = await page.evaluate(() => { const g = (l) => PSapp.ed.doc.comps.find((c) => c.label === l); const s = PSapp.ed.sim; return { y: s.rt[g('Y1').id].on, x: s.rt[g('A1').id].x / s.rt[g('A1').id].L, cur: document.querySelectorAll('.wire.elec .wline[style*="stroke"]').length }; });
+  ok(est.y && est.x > 0.9, `Taster im Stromlaufplan: Spule erregt, Zylinder ausgefahren (x=${est.x.toFixed(2)})`);
+  ok(est.cur > 0, 'stromführende Leitungen werden eingefärbt (' + est.cur + ')');
+  await page.mouse.up();
+  await page.click('#tabSim');
+  ok((await page.locator('[data-e]').count()) >= 2, 'Bedienung zeigt Status von Spule und Lampe');
   await page.click('#modeEdit');
 
   ok(errs.length === 0, 'keine Konsolenfehler' + (errs.length ? ': ' + errs.join(' | ') : ''));
